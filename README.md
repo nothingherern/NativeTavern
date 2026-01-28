@@ -4,7 +4,12 @@
   <a href="README.md">简体中文</a> | <a href="README.en.md">English</a>
 </p>
 
+<p align="center">
+  🌐 <a href="https://nativetavern.com/">Native Tavern</a>
+</p>
+
 一个原生跨平台移动应用（iOS/Android），将 SillyTavern 重新实现为高性能原生应用，完全兼容 SillyTavern 数据格式。
+
 
 ## 截图
 

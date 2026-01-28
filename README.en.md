@@ -4,6 +4,10 @@
   <a href="README.md">简体中文</a> | <a href="README.en.md">English</a>
 </p>
 
+<p align="center">
+  🌐 <a href="https://nativetavern.com/">Native Tavern</a>
+</p>
+
 A native cross-platform mobile application (iOS/Android) that reimplements SillyTavern as a high-performance native app with full compatibility for SillyTavern data formats.
 
 ## Screenshots
