@@ -75,9 +75,13 @@ class AICustomPresetsNotifier extends StateNotifier<List<AIPreset>> {
 }
 
 /// Provider for all AI presets (built-in + custom)
+/// Custom presets with the same ID as a built-in one will override it.
 final allAIPresetsProvider = Provider<List<AIPreset>>((ref) {
   final customPresets = ref.watch(aiCustomPresetsProvider);
-  return [...BuiltInAIPresets.all, ...customPresets];
+  final customIds = customPresets.map((p) => p.id).toSet();
+  // Built-in presets that haven't been overridden by custom versions
+  final nonOverriddenBuiltIn = BuiltInAIPresets.all.where((p) => !customIds.contains(p.id));
+  return [...nonOverriddenBuiltIn, ...customPresets];
 });
 
 /// Active AI preset ID provider
@@ -123,8 +127,76 @@ class AIPresetManager {
 
   AIPresetManager(this._ref);
 
+  /// Save current settings back to the currently active preset.
+  /// This ensures user changes (e.g., API URL modifications) are preserved
+  /// when switching between presets.
+  Future<void> _saveCurrentToActivePreset() async {
+    final activeId = _ref.read(activeAIPresetIdProvider);
+    if (activeId == null) return;
+
+    // Find the active preset (could be custom or built-in)
+    final allPresets = _ref.read(allAIPresetsProvider);
+    final activePreset = allPresets.where((p) => p.id == activeId).firstOrNull;
+    if (activePreset == null) return;
+
+    // Capture current settings
+    final llmConfig = _ref.read(llmConfigProvider);
+    final llmNotifier = _ref.read(llmConfigProvider.notifier);
+    final promptConfig = _ref.read(promptManagerProvider);
+    final instructTemplateId = _ref.read(activeInstructTemplateIdProvider);
+    final allProviderConfigs = await llmNotifier.getAllProviderConfigs();
+
+    final updatedPreset = AIPreset(
+      id: activeId,
+      name: activePreset.name,
+      description: activePreset.description,
+      isBuiltIn: false, // Once saved to custom storage, it's no longer built-in
+      createdAt: activePreset.createdAt,
+      updatedAt: DateTime.now(),
+      generationSettings: GenerationPreset(
+        temperature: llmConfig.temperature,
+        topP: llmConfig.topP,
+        topK: llmConfig.topK,
+        minP: llmConfig.minP,
+        typicalP: llmConfig.typicalP,
+        repetitionPenalty: llmConfig.repetitionPenalty,
+        repetitionPenaltyRange: llmConfig.repetitionPenaltyRange,
+        frequencyPenalty: llmConfig.frequencyPenalty,
+        presencePenalty: llmConfig.presencePenalty,
+        tailFreeSampling: llmConfig.tailFreeSampling,
+        topA: llmConfig.topA,
+        mirostatMode: llmConfig.mirostatMode,
+        mirostatTau: llmConfig.mirostatTau,
+        mirostatEta: llmConfig.mirostatEta,
+        maxTokens: llmConfig.maxTokens,
+        stopSequences: llmConfig.stopSequences,
+        seed: llmConfig.seed,
+        streamEnabled: llmConfig.streamEnabled,
+      ),
+      promptManagerConfig: promptConfig,
+      instructTemplateId: instructTemplateId,
+      provider: llmConfig.provider.name,
+      providerSettings: allProviderConfigs,
+    );
+
+    // Check if already exists in custom presets
+    final customPresets = _ref.read(aiCustomPresetsProvider);
+    final existsInCustom = customPresets.any((p) => p.id == activeId);
+    
+    if (existsInCustom) {
+      await _ref.read(aiCustomPresetsProvider.notifier).updatePreset(updatedPreset);
+    } else {
+      // First time saving a built-in preset — add to custom presets
+      await _ref.read(aiCustomPresetsProvider.notifier).addPreset(updatedPreset);
+    }
+  }
+
   /// Apply an AI preset to current settings
   Future<void> applyPreset(AIPreset preset) async {
+    // Auto-save current settings to the currently active custom preset
+    // so that user changes are not lost when switching presets
+    await _saveCurrentToActivePreset();
+
     // Apply generation settings to LLM config
     final llmNotifier = _ref.read(llmConfigProvider.notifier);
     final gen = preset.generationSettings;
@@ -148,21 +220,21 @@ class AIPresetManager {
     llmNotifier.updateSeed(gen.seed);
     llmNotifier.updateStreamEnabled(gen.streamEnabled);
 
-    // Restore ALL provider configurations first
-    if (preset.providerSettings != null) {
+    // Restore ALL provider configurations
+    if (preset.providerSettings != null && preset.providerSettings!.isNotEmpty) {
       await llmNotifier.restoreProviderConfigs(preset.providerSettings!);
     }
 
-    // Then switch the active provider if specified
+    // Switch provider and force-refresh connection settings
     if (preset.provider != null) {
       try {
-        final provider = LLMProvider.values.firstWhere(
+        final targetProvider = LLMProvider.values.firstWhere(
           (p) => p.name == preset.provider,
           orElse: () => LLMProvider.openai,
         );
-        // Only update if different to avoid unnecessary re-inits
-        // But updateProvider handles that check internally too
-        await llmNotifier.updateProvider(provider);
+        // Force switch: first change to a different provider then back,
+        // or use forceRefreshProvider which we added
+        await llmNotifier.forceSetProvider(targetProvider);
       } catch (_) {
         // Ignore invalid provider strings
       }

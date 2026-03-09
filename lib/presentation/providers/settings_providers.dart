@@ -254,6 +254,29 @@ class LLMConfigNotifier extends StateNotifier<LLMConfig> {
     _log('Switched to provider ${provider.name}: apiUrl=${state.apiUrl}, model=${state.model}');
   }
 
+  /// Force set provider and reload its config from DB.
+  /// Unlike updateProvider, this does NOT skip if the provider is the same.
+  /// Used when applying presets to ensure connection settings are refreshed.
+  /// 
+  /// IMPORTANT: Do NOT call _saveCurrentProviderConfig() here!
+  /// This method is called after restoreProviderConfigs has already written
+  /// the correct configs to DB. Saving current state would overwrite
+  /// the just-restored preset configs with old values.
+  Future<void> forceSetProvider(LLMProvider provider) async {
+    // Load the target provider's saved settings (freshly restored from preset)
+    final newProviderConfig = await _loadProviderConfig(provider);
+
+    state = state.copyWith(
+      provider: provider,
+      apiKey: newProviderConfig['apiKey'],
+      apiUrl: newProviderConfig['apiUrl'],
+      model: newProviderConfig['model'],
+    );
+    await _saveConfig();
+    
+    _log('Force set provider ${provider.name}: apiUrl=${state.apiUrl}, model=${state.model}, apiKey=${state.apiKey.isNotEmpty ? "***" : "(empty)"}');
+  }
+
   void updateApiKey(String apiKey) {
     state = state.copyWith(apiKey: apiKey);
     _saveConfig();
@@ -402,10 +425,10 @@ class LLMConfigNotifier extends StateNotifier<LLMConfig> {
     return result;
   }
 
-  /// Restore configuration for all providers
+  /// Restore configuration for all providers (writes to DB/prefs only).
+  /// The caller is responsible for refreshing the active provider state
+  /// (e.g., via forceSetProvider).
   Future<void> restoreProviderConfigs(Map<String, Map<String, dynamic>> configs) async {
-    bool currentProviderUpdated = false;
-
     for (final entry in configs.entries) {
       try {
         final providerName = entry.key;
@@ -414,7 +437,7 @@ class LLMConfigNotifier extends StateNotifier<LLMConfig> {
         // Find the provider enum
         final provider = LLMProvider.values.firstWhere(
           (p) => p.name == providerName,
-          orElse: () => LLMProvider.openai // Fallback, effectively skips if name not found
+          orElse: () => LLMProvider.openai // Fallback
         );
         
         if (provider.name != providerName) continue; // Skip if name didn't match exactly
@@ -435,24 +458,9 @@ class LLMConfigNotifier extends StateNotifier<LLMConfig> {
         // Sync to Prefs
         await _prefs.setString(key, jsonStr);
         _log('Restored config for provider ${provider.name}');
-
-        if (provider == state.provider) {
-          currentProviderUpdated = true;
-        }
       } catch (e) {
         _log('Failed to restore config for ${entry.key}: $e');
       }
-    }
-
-    // If the currently active provider was affected, refresh the state
-    if (currentProviderUpdated) {
-      final newConfig = await _loadProviderConfig(state.provider);
-      state = state.copyWith(
-        apiKey: newConfig['apiKey'],
-        apiUrl: newConfig['apiUrl'],
-        model: newConfig['model'],
-      );
-      await _saveConfig();
     }
   }
 }
