@@ -8,6 +8,7 @@ import 'package:native_tavern/presentation/providers/persona_providers.dart';
 import 'package:native_tavern/presentation/providers/settings_providers.dart';
 import 'package:native_tavern/presentation/router/app_router.dart';
 import 'package:native_tavern/presentation/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Settings screen - App settings only (AI config is in separate tab)
 class SettingsScreen extends ConsumerWidget {
@@ -23,6 +24,35 @@ class SettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.language),
+                    label: const Text('Official Website'),
+                    onPressed: () => launchUrl(
+                      Uri.parse('https://nativetavern.com'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.forum),
+                    label: const Text('Discord'),
+                    onPressed: () => launchUrl(
+                      Uri.parse('https://discord.gg/nativetavern'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 16),
           _buildSectionHeader(context, l10n.user),
           _PersonaTile(),
           ListTile(
